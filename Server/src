@@ -1,0 +1,378 @@
+#include <WiFi.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <cstring>
+
+// OLED
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, -1);
+
+const char* ssid = "Alamak";
+const char* password = "ndaktaukoktanyasaya";
+int port = 50003;
+
+// mDNS Configuration
+const char* mdnsName = "robot-server";  // Hostname untuk server
+
+// Static IP Configuration (Konfigurasi IP Statis untuk Stabilitas)
+IPAddress local_IP(10, 191, 92, 2);      // IP yang diminta (Fixed/Statis)
+IPAddress gateway(10, 191, 92, 1);       // Gateway (biasanya router)
+IPAddress subnet(255, 255, 255, 0);      // Subnet mask
+IPAddress primaryDNS(8, 8, 8, 8);        // DNS Google
+IPAddress secondaryDNS(8, 8, 4, 4);      // DNS Google secondary
+
+WiFiServer server(port);
+
+// Button pins (fixed variable names)
+const int selectPin = 10;
+const int hpbuffPin = 11;
+const int atkbuffPin = 12;
+const int deffbuffPin = 13;
+const int strbuffPin = 14;
+const int engybuffPin = 15;
+
+int selectedClient = 0;
+bool selectConfirmed = false;
+unsigned long lastSelectPress = 0;
+int selectClickCount = 0;
+
+// TCP Connection Management
+const unsigned long TCP_TIMEOUT = 30000;  // 30 detik timeout
+const int MAX_CLIENTS = 4;
+unsigned long lastWiFiCheck = 0;
+const unsigned long WIFI_CHECK_INTERVAL = 5000;  // Cek WiFi setiap 5 detik
+
+struct ClientData {
+  WiFiClient client;
+  String name;
+  unsigned long lastActivity;  // Tracking aktivitas klien
+  bool isConnected;
+  // Added stat fields for buff system
+  int hp = 100;
+  int atk = 10;
+  int defense = 10;
+  int strength = 10;
+  int energy = 100;
+};
+
+template <class T>
+class DNode {
+public:
+  T data;
+  DNode<T>* next;
+  DNode<T>* prev;
+  DNode(const T& d, DNode<T>* p = nullptr, DNode<T>* n = nullptr)
+    : data(d), prev(p), next(n) {}
+};
+
+template <class T>
+class DoublyLinkedList {
+private:
+  DNode<T>* head;
+  DNode<T>* tail;
+public:
+  DoublyLinkedList() : head(nullptr), tail(nullptr) {}
+  ~DoublyLinkedList() {
+    while (head) {
+      DNode<T>* tmp = head;
+      head = head->next;
+      delete tmp;
+    }
+  }
+  void insertBack(const T& data) {
+    DNode<T>* newNode = new DNode<T>(data, tail, nullptr);
+    if (tail) {
+      tail->next = newNode;
+    } else {
+      head = newNode;
+    }
+    tail = newNode;
+  }
+  void removeNode(DNode<T>* node) {
+    if (!node) return;
+    if (node->prev)
+      node->prev->next = node->next;
+    else
+      head = node->next;
+    if (node->next)
+      node->next->prev = node->prev;
+    else
+      tail = node->prev;
+    delete node;
+  }
+  DNode<T>* getHead() {
+    return head;
+  }
+  int count() {
+    int c = 0;
+    DNode<T>* temp = head;
+    while (temp) {
+      c++;
+      temp = temp->next;
+    }
+    return c;
+  }
+};
+
+DoublyLinkedList<ClientData> clientList;
+bool gameStarted = false;
+bool serverReady = false;
+bool wifiConnected = false;
+bool mdnsStarted = false;
+
+void maintainWiFiConnection() {
+  unsigned long currentMillis = millis();
+  
+  if (currentMillis - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {
+    lastWiFiCheck = currentMillis;
+    
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("WiFi disconnected! Attempting to reconnect...");
+      WiFi.begin(ssid, password);  // Reconnect dengan begin ulang
+      delay(500);
+    }
+  }
+}
+
+void connectToWiFi() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Starting WiFi connection...");
+    
+    // Konfigurasi Static IP untuk RP2040
+    WiFi.config(local_IP, gateway, primaryDNS, subnet);
+    Serial.println("Static IP configured");
+    
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+      delay(500);
+      Serial.print(".");
+      attempts++;
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      wifiConnected = true;
+      Serial.println("\nWiFi Connected with Static IP!");
+      Serial.print("IP Address: ");
+      Serial.println(WiFi.localIP());
+      Serial.print("RSSI (Signal Strength): ");
+      Serial.println(WiFi.RSSI());
+      
+      // Setup Hostname untuk mDNS discovery
+      if (!mdnsStarted) {
+        WiFi.setHostname(mdnsName);
+        mdnsStarted = true;
+        Serial.println("Hostname set to: " + String(mdnsName) + ".local");
+        Serial.println("Server available as: " + String(mdnsName) + ".local");
+      }
+      
+      server.begin();
+      
+      display.clearDisplay();
+      display.setTextSize(1);
+      display.setTextColor(SSD1306_WHITE);
+      display.setCursor(0, 0);
+      display.print("IP: ");
+      display.println(WiFi.localIP());
+      display.print("Hostname: ");
+      display.println(String(mdnsName) + ".local");
+      display.print("Port: ");
+      display.println(port);
+      display.display();
+    } else {
+      wifiConnected = false;
+      Serial.println("\nFailed to connect to WiFi");
+    }
+  }
+}
+
+void displayServerReady() {
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setCursor(15, 20);
+  display.print("Server");
+  display.setCursor(25, 40);
+  display.print("Ready!");
+  display.display();
+  serverReady = true;
+}
+
+void manageTCPConnections() {
+  unsigned long currentTime = millis();
+  DNode<ClientData>* current = clientList.getHead();
+  
+  while (current != nullptr) {
+    WiFiClient &client = current->data.client;
+    
+    if (!client.connected()) {
+      Serial.println("Client " + current->data.name + " disconnected");
+      DNode<ClientData>* toDelete = current;
+      current = current->next;
+      clientList.removeNode(toDelete);
+    } 
+    else if (currentTime - current->data.lastActivity > TCP_TIMEOUT) {
+      Serial.println("Client " + current->data.name + " timeout");
+      client.stop();
+      DNode<ClientData>* toDelete = current;
+      current = current->next;
+      clientList.removeNode(toDelete);
+    } 
+    else {
+      current = current->next;
+    }
+  }
+}
+
+void mainServer() {
+  if (clientList.count() < MAX_CLIENTS) {
+    WiFiClient newClient = server.accept();
+    if (newClient) {
+      String clientName = "Player_" + String(random(1000, 9999)); 
+      ClientData cd;
+      cd.client = newClient;
+      cd.name = clientName;
+      cd.lastActivity = millis();
+      cd.isConnected = true;
+      clientList.insertBack(cd);
+      
+      Serial.println("New client connected: " + clientName);
+      newClient.println("WELCOME " + clientName);
+    }
+  }
+  
+  if (clientList.count() == 2 && !gameStarted) {
+    displayServerReady();
+    gameStarted = true;
+  }
+
+  DNode<ClientData>* current = clientList.getHead();
+  while (current != nullptr) {
+    WiFiClient &client = current->data.client;
+    
+    if (client && client.available()) {
+      String data = client.readStringUntil('\n');
+      data.trim();
+      
+      if (data.length() > 0) {
+        Serial.println("From " + current->data.name + ": " + data);
+        current->data.lastActivity = millis();
+        
+        DNode<ClientData>* receiver = clientList.getHead();
+        while (receiver != nullptr) {
+          if (receiver != current && receiver->data.client.connected()) {
+            receiver->data.client.println(current->data.name + ": " + data);
+          }
+          receiver = receiver->next;
+        }
+      }
+    }
+    
+    current = current->next;
+  }
+  
+  manageTCPConnections();
+}
+
+void scanSelectAndBuff() {
+  int selState = digitalRead(selectPin);
+  if (selState == LOW) {
+    if (millis() - lastSelectPress < 300) {
+      selectClickCount++;
+    } else {
+      selectClickCount = 1;
+    }
+    lastSelectPress = millis();
+    delay(50);
+    if (selectClickCount == 2) {
+      selectedClient = (selectedClient == 1 ? 2 : 1);
+      selectConfirmed = true;
+      selectClickCount = 0;
+      Serial.printf("Selected client %d\n", selectedClient);
+    }
+  }
+
+  if (!selectConfirmed) return;
+
+  if (digitalRead(hpbuffPin) == LOW) {
+    applyBuff("HP", selectedClient);
+  } else if (digitalRead(atkbuffPin) == LOW) {
+    applyBuff("ATK", selectedClient);
+  } else if (digitalRead(deffbuffPin) == LOW) {
+    applyBuff("DEF", selectedClient);
+  } else if (digitalRead(strbuffPin) == LOW) {
+    applyBuff("STR", selectedClient);
+  } else if (digitalRead(engybuffPin) == LOW) {
+    applyBuff("ENGY", selectedClient);
+  }
+}
+
+void applyBuff(const String &stat, int which) {
+  DNode<ClientData>* node = clientList.getHead();
+  if (!node) return;
+  if (which == 2 && node->next) node = node->next;
+
+  int* statRef = nullptr;
+  if (stat == "HP") statRef = &node->data.hp;
+  else if (stat == "ATK") statRef = &node->data.atk;
+  else if (stat == "DEF") statRef = &node->data.defense;
+  else if (stat == "STR") statRef = &node->data.strength;
+  else if (stat == "ENGY") statRef = &node->data.energy;
+  
+  if (statRef) {
+    *statRef = *statRef + *statRef / 10;
+    
+    node->data.client.println("Buff " + stat + " +10%");
+    Serial.printf("Applied %s buff to client %d\n", stat.c_str(), which);
+  }
+
+  selectConfirmed = false;
+  selectedClient = 0;
+  
+  delay(200);
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  Wire.setSDA(16);
+  Wire.setSCL(17);
+  Wire.begin();
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 failed to start"));
+    while (true);
+  }
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.print("Connecting WiFi...");
+  display.display();
+  delay(1000);
+
+  pinMode(selectPin, INPUT_PULLUP);
+  pinMode(hpbuffPin, INPUT_PULLUP);
+  pinMode(atkbuffPin, INPUT_PULLUP);
+  pinMode(deffbuffPin, INPUT_PULLUP);
+  pinMode(strbuffPin, INPUT_PULLUP);
+  pinMode(engybuffPin, INPUT_PULLUP);
+  
+  connectToWiFi();
+}
+
+void loop() {
+  maintainWiFiConnection();
+  
+  if (wifiConnected && WiFi.status() == WL_CONNECTED) {
+    mainServer();
+  }
+  
+  scanSelectAndBuff();
+  delay(10);
+}
