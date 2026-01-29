@@ -1,14 +1,4 @@
-/*
- * ========================================
- * ROBOT BATTLE SYSTEM - RASPBERRY PI PICO W
- * ========================================
- * Handcombat stance
- * Client Name: Stellar
- * Update: Auto-Discovery Server via mDNS
- * ========================================
- */
-
-
+// hand combat
 #include <WiFi.h>
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
@@ -44,18 +34,12 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, -1);
 const char* ssid = "Alamak";
 const char* password = "ndaktaukoktanyasaya";
 
-// Server Discovery Configuration
-const char* serverMdnsName = "robot-server";  // Hostname server (harus sama dengan server)
+// Konfigurasi Server
+const char* serverIP = "10.29.117.2";
 const int serverPort = 50003;
 
 // Konfigurasi Klien
 const String clientName = "Stellar"; // Ganti untuk client kedua
-
-// Server connection variables
-char serverIP[16] = "";  // Buffer untuk IP server yang ditemukan
-bool serverFound = false;
-unsigned long lastDiscoveryTime = 0;
-const unsigned long DISCOVERY_INTERVAL = 10000;  // Coba discover setiap 10 detik jika belum connected
 
 // Status robot
 int hp = 400;
@@ -132,24 +116,7 @@ void setup() {
 
     setIdlePosition();
     connectToWiFi();
-    
-    // Mulai discovery server
-    displayPrint("Searching for\nserver...");
-    int discoveryAttempts = 0;
-    while (!serverFound && discoveryAttempts < 5) {
-      if (discoverServer()) {
-        break;
-      }
-      discoveryAttempts++;
-      delay(1000);
-    }
-    
-    if (serverFound) {
-      connectToServer();
-    } else {
-      displayPrint("Server not found!\nRetry in loop...");
-      delay(2000);
-    }
+    connectToServer();
 }
 
 void setServoAngle(uint8_t servo, int angle) {
@@ -184,116 +151,38 @@ void displayPrint(const String &text) {
 
 void connectToWiFi() {
   Serial.println("Connecting to WiFi...");
-  displayPrint("Connecting to\nWiFi...");
+  displayPrint("Connecting to WiFi...");
   WiFi.begin(ssid, password);
   
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+  while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
-    attempts++;
   }
   
-  if (WiFi.status() == WL_CONNECTED) {
-    displayPrint("WiFi Connected!\nIP: " + WiFi.localIP().toString());
-    Serial.println("\nWiFi Connected!");
-    delay(2000);
-  } else {
-    displayPrint("WiFi Failed!\nCheck SSID/Pass");
-    delay(2000);
-  }
-}
-
-// Fungsi untuk discover server menggunakan mDNS
-bool discoverServer() {
-  Serial.println("Discovering robot-server via mDNS...");
-  displayPrint("Discovering\nserver...");
-  
-  // Create hostname string dan IPAddress untuk hasil
-  String hostnameStr = String(serverMdnsName) + ".local";
-  IPAddress serverAddress;
-  
-  // Resolve hostname ke IP address (parameter: hostname, reference to IPAddress)
-  int result = WiFi.hostByName(hostnameStr.c_str(), serverAddress);
-  
-  if (result != 0 && serverAddress != (uint32_t)0) {
-    // Konversi IPAddress ke string
-    sprintf(serverIP, "%d.%d.%d.%d", serverAddress[0], serverAddress[1], 
-            serverAddress[2], serverAddress[3]);
-    
-    serverFound = true;
-    Serial.print("Server found at: ");
-    Serial.println(serverIP);
-    displayPrint("Server found!\n" + String(serverIP));
-    delay(1500);
-    return true;
-  } else {
-    Serial.println("Server not found");
-    displayPrint("Server not\nfound...");
-    delay(1000);
-    return false;
-  }
+  displayPrint("WiFi Connected!\nIP: " + WiFi.localIP().toString());
+  delay(2000);
 }
 
 void connectToServer() {
-  if (!serverFound) {
-    displayPrint("Server IP unknown");
-    return;
-  }
-  
-  displayPrint("Connecting to\nserver...");
-  int attempts = 0;
-  
-  while (!client.connect(serverIP, serverPort) && attempts < 5) {
+  displayPrint("Connecting to server...");
+  while (!client.connect(serverIP, serverPort)) {
     Serial.println("Connection failed, retrying...");
-    displayPrint("Connection\nfailed...");
-    delay(1000);
-    attempts++;
+    delay(5000);
   }
-  
-  if (client.connected()) {
-    client.println(clientName);
-    displayPrint("Server Connected!");
-    Serial.println("Server Connected!");
-    delay(1500);
-  } else {
-    displayPrint("Server connect\nfailed!");
-    Serial.println("Failed to connect to server");
-    delay(2000);
-  }
+  client.println(clientName);
+  displayPrint("Server Connected!");
 }
 
 void handleServer() {
-  // Jika client belum connected dan server sudah ditemukan, coba connect
-  if (!client.connected() && serverFound) {
-    // Coba rediscover dan reconnect setiap 10 detik
-    if (millis() - lastDiscoveryTime > DISCOVERY_INTERVAL) {
-      lastDiscoveryTime = millis();
-      Serial.println("Attempting to reconnect to server...");
-      connectToServer();
-    }
-    return;
-  }
+  if (!client.connected()) connectToServer();
   
-  // Jika server belum ditemukan sama sekali
-  if (!serverFound) {
-    if (millis() - lastDiscoveryTime > DISCOVERY_INTERVAL) {
-      lastDiscoveryTime = millis();
-      discoverServer();
-      if (serverFound) {
-        connectToServer();
-      }
-    }
-    return;
-  }
-  
-  // Proses data dari server
   while (client.available()) {
     String data = client.readStringUntil('\n');
     data.trim();
     Serial.println("Received: " + data);
     
     if (data.startsWith("Atk")) {
+      //handleDamage(data.substring(4).toInt());
       int incomingDamage = data.substring(4).toInt();
       handleDamage(incomingDamage);
     }
@@ -488,11 +377,6 @@ void checkReset() {
 }
 
 void sendAttack() {
-  if (!client.connected()) {
-    Serial.println("Not connected to server!");
-    return;
-  }
-  
   // Tambahkan bonus damage berdasarkan strength
   int totalAtk = atk + (atk * strength / 100);
   String msg = "Atk " + String(totalAtk) + "\n";
