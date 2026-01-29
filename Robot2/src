@@ -4,7 +4,7 @@
  * ========================================
  * Handcombat stance
  * Client Name: Griffith
- * Update: Auto-Discovery Server via mDNS
+ * Update : Enable reset all time
  * ========================================
  */
 
@@ -25,6 +25,7 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
 #define OLED_RESET    -1
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, -1);
 
+
 // Definisi kanal untuk masing-masing servo
 #define SERVO_PUNGGUNG 0
 #define SERVO_BAHUKANAN 1
@@ -37,29 +38,24 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, -1);
 #define SERVO_LUTUTKIRI 8
 #define SERVO_TELAPAKKANAN 9
 #define SERVO_TELAPAKKIRI 10
-
+  
 // Konfigurasi Wi-Fi
 const char* ssid = "Alamak";
 const char* password = "ndaktaukoktanyasaya";
 
-// Server Discovery Configuration
-const char* serverMdnsName = "robot-server";  // Hostname server (harus sama dengan server)
+// Konfigurasi Server
+const char* serverIP = "192.168.1.10";
 const int serverPort = 50003;
+// 
 
 // Konfigurasi Klien
 const String clientName = "Esmocca"; // Ganti untuk client kedua
 
-// Server connection variables
-char serverIP[16] = "";  // Buffer untuk IP server yang ditemukan
-bool serverFound = false;
-unsigned long lastDiscoveryTime = 0;
-const unsigned long DISCOVERY_INTERVAL = 10000;  // Coba discover setiap 10 detik jika belum connected
-
 // Status robot
 int hp = 400;
 int atk = 30;
-int defense = 30;
-int strength = 10;
+int defense = 30; // Defense dalam persen (misalnya 20 berarti mengurangi damage sebesar 20%)
+int strength = 10;   // Strength dalam persen (misalnya 10 berarti menambah 10% damage dari atk)
 int energy = 150;
 const int energyMax = 150;
 const int energyRegen = 40;
@@ -77,22 +73,24 @@ const int blockPin = 15;
 int block_press_count = 0;
 int block_state = 0;
 int prev_block_state = 0;
-unsigned long lastBlockTime = 0, blockInterval = 3000;
+unsigned long lastBlockTime = 0, blockInterval = 3000; // Block timing
 bool isBlocking = false;
 
 // Attack button
 int button_state = 0;
-unsigned long lastAtkTime = 0, atkInterval = 500;
+unsigned long lastAtkTime = 0, atkInterval = 500;  // Attack timing
 bool isAttacking = false;
 
-// Skill button
+//Skill button
 int skill_state = 0;
 unsigned long lastSkill = 0, skillInterval = 500;
 bool isSkill = false;
 
+
 // Timing Variables
 unsigned long lastRegen = 0;
 unsigned long lastAttack = 0;
+// unsigned long lastSkill = 0;
 bool skillReleased = true;
 bool atkReleased = true;
 
@@ -107,96 +105,49 @@ unsigned long blockingAtkMotionStart = 0;
 
 WiFiClient client;
 
-// Fungsi untuk discover server menggunakan mDNS
-bool discoverServer() {
-  Serial.println("Discovering robot-server via mDNS...");
-  displayPrint("Discovering\nserver...");
-  
-  // Create hostname string dan IPAddress untuk hasil
-  String hostnameStr = String(serverMdnsName) + ".local";
-  IPAddress serverAddress;
-  
-  // Resolve hostname ke IP address (parameter: hostname, reference to IPAddress)
-  int result = WiFi.hostByName(hostnameStr.c_str(), serverAddress);
-  
-  if (result != 0 && serverAddress != (uint32_t)0) {
-    // Konversi IPAddress ke string
-    sprintf(serverIP, "%d.%d.%d.%d", serverAddress[0], serverAddress[1], 
-            serverAddress[2], serverAddress[3]);
-    
-    serverFound = true;
-    Serial.print("Server found at: ");
-    Serial.println(serverIP);
-    displayPrint("Server found!\n" + String(serverIP));
-    delay(1500);
-    return true;
-  } else {
-    Serial.println("Server not found");
-    displayPrint("Server not\nfound...");
-    delay(1000);
-    return false;
-  }
-}
-
 void setup() {
-  Serial.begin(115200);
+    Serial.begin(115200);
 
-  // Inisialisasi OLED
-  Wire1.setSDA(18);
-  Wire1.setSCL(19);
-  Wire1.begin();
+    // Inisialisasi OLED
+    Wire1.setSDA(18);  // Menggunakan pin 18 untuk SDA
+    Wire1.setSCL(19);  // Menggunakan pin 19 untuk SCL
+    Wire1.begin();
 
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { 
-    Serial.println("OLED Gagal");
-    while(1);
+    if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { 
+      Serial.println("OLED Gagal");
+      while(1);
   }
 
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
 
-  Wire.setSDA(20);
-  Wire.setSCL(21);
-  Wire.begin();
-  pwm.begin();
-  pwm.setPWMFreq(50);
+    Wire.setSDA(20);
+    Wire.setSCL(21);
+    Wire.begin();
+    pwm.begin();
+    pwm.setPWMFreq(50); // Frekuensi untuk servo (50 Hz)
 
-  // Inisialisasi Pin
-  pinMode(atkPin, INPUT_PULLUP);
-  pinMode(blockPin, INPUT_PULLUP);
-  pinMode(resetPin, INPUT_PULLUP);
-  pinMode(skillPin, INPUT_PULLUP);
+    // Inisialisasi Pin
+    pinMode(atkPin, INPUT_PULLUP);
+    pinMode(blockPin, INPUT_PULLUP);
+    pinMode(resetPin, INPUT_PULLUP);
+    pinMode(skillPin, INPUT_PULLUP);
 
-  setIdlePosition();
-  connectToWiFi();
-  
-  // Mulai discovery server
-  displayPrint("Searching for\nserver...");
-  int discoveryAttempts = 0;
-  while (!serverFound && discoveryAttempts < 5) {
-    if (discoverServer()) {
-      break;
-    }
-    discoveryAttempts++;
-    delay(1000);
-  }
-  
-  if (serverFound) {
+    setIdlePosition();
+    connectToWiFi();
     connectToServer();
-  } else {
-    displayPrint("Server not found!\nRetry in loop...");
-    delay(2000);
-  }
 }
 
 void setServoAngle(uint8_t servo, int angle) {
-  int pulse = map(angle, 0, 180, SERVO_MIN, SERVO_MAX);
-  pwm.setPWM(servo, 0, pulse);
+    int pulse = map(angle, 0, 180, SERVO_MIN, SERVO_MAX);
+    pwm.setPWM(servo, 0, pulse);
 }
 
 void updateDisplay() {
   display.clearDisplay();
   display.setTextColor(WHITE);
+  //display.startscrollright(0x00, 0x0F); // Animasi scroll
   display.setTextSize(1);
   display.setCursor(10, 0);
   display.println(clientName);
@@ -220,79 +171,32 @@ void displayPrint(const String &text) {
 
 void connectToWiFi() {
   Serial.println("Connecting to WiFi...");
-  displayPrint("Connecting to\nWiFi...");
+  displayPrint("Connecting to WiFi...");
   WiFi.begin(ssid, password);
   
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+  while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
-    attempts++;
   }
   
-  if (WiFi.status() == WL_CONNECTED) {
-    displayPrint("WiFi Connected!\nIP: " + WiFi.localIP().toString());
-    Serial.println("\nWiFi Connected!");
-    delay(2000);
-  } else {
-    displayPrint("WiFi Failed!\nCheck SSID/Pass");
-    delay(2000);
-  }
+  displayPrint("WiFi Connected!\nIP: " + WiFi.localIP().toString());
+  delay(2000);
 }
 
+
 void connectToServer() {
-  if (!serverFound) {
-    displayPrint("Server IP unknown");
-    return;
-  }
-  
-  displayPrint("Connecting to\nserver...");
-  int attempts = 0;
-  
-  while (!client.connect(serverIP, serverPort) && attempts < 5) {
+  displayPrint("Connecting to server...");
+  while (!client.connect(serverIP, serverPort)) {
     Serial.println("Connection failed, retrying...");
-    displayPrint("Connection\nfailed...");
-    delay(1000);
-    attempts++;
+    delay(5000);
   }
-  
-  if (client.connected()) {
-    client.println(clientName);
-    displayPrint("Server Connected!");
-    Serial.println("Server Connected!");
-    delay(1500);
-  } else {
-    displayPrint("Server connect\nfailed!");
-    Serial.println("Failed to connect to server");
-    delay(2000);
-  }
+  client.println(clientName);
+  displayPrint("Server Connected!");
 }
 
 void handleServer() {
-  // Jika client belum connected dan server sudah ditemukan, coba connect
-  if (!client.connected() && serverFound) {
-    // Coba rediscover dan reconnect setiap 10 detik
-    if (millis() - lastDiscoveryTime > DISCOVERY_INTERVAL) {
-      lastDiscoveryTime = millis();
-      Serial.println("Attempting to reconnect to server...");
-      connectToServer();
-    }
-    return;
-  }
+  if (!client.connected()) connectToServer();
   
-  // Jika server belum ditemukan sama sekali
-  if (!serverFound) {
-    if (millis() - lastDiscoveryTime > DISCOVERY_INTERVAL) {
-      lastDiscoveryTime = millis();
-      discoverServer();
-      if (serverFound) {
-        connectToServer();
-      }
-    }
-    return;
-  }
-  
-  // Proses data dari server
   while (client.available()) {
     String data = client.readStringUntil('\n');
     data.trim();
@@ -300,6 +204,7 @@ void handleServer() {
     
     if (data.startsWith("Atk")) {
       int incomingDamage = data.substring(4).toInt();
+      //handleDamage(data.substring(4).toInt());
       handleDamage(incomingDamage);
     } else if (data.startsWith("Buff")) {
       handleBuff(data);
@@ -308,17 +213,18 @@ void handleServer() {
 }
 
 void setIdlePosition() {
-  setServoAngle(SERVO_BAHUKANAN, 80);
-  setServoAngle(SERVO_SIKUKANAN, 60);
-  setServoAngle(SERVO_TANGANKIRI, 110);
-  setServoAngle(SERVO_PUNGGUNG, 75);
-  setServoAngle(SERVO_PINGGANG, 40);
-  setServoAngle(SERVO_KAKIKANAN, 80);
-  setServoAngle(SERVO_KAKIKIRI, 15);
-  setServoAngle(SERVO_LUTUTKANAN , 10);
-  setServoAngle(SERVO_LUTUTKIRI , 130);
-  setServoAngle(SERVO_TELAPAKKANAN , 65);
-  setServoAngle(SERVO_TELAPAKKIRI , 80);
+  setServoAngle(SERVO_BAHUKANAN, 80);//-kanan +kiri
+  setServoAngle(SERVO_SIKUKANAN, 60);//- semakin kecil semakin kebelakang
+  setServoAngle(SERVO_TANGANKIRI, 110);// - semakin kecil semakin kedepan
+  setServoAngle(SERVO_PUNGGUNG, 75);//-semakin kecil semakin naik
+  setServoAngle(SERVO_PINGGANG, 40);//-semakin besar semakin ke kiri
+  setServoAngle(SERVO_KAKIKANAN, 80);// -semakin besar semakin kedepan
+  setServoAngle(SERVO_KAKIKIRI, 15);// -semakin kecil semakin kedepan
+  setServoAngle(SERVO_LUTUTKANAN , 10);// -semakin kecil semakin lurus
+  setServoAngle(SERVO_LUTUTKIRI , 130);// -semakin besar semakin lurus
+  setServoAngle(SERVO_TELAPAKKANAN , 65);// -semakin besar semakin maju
+  setServoAngle(SERVO_TELAPAKKIRI , 80);// -semakin kecil semakin maju
+
 }
 
 bool debounceButton(int pin) {
@@ -330,7 +236,7 @@ bool debounceButton(int pin) {
     lastDebounceTime = millis();
   }
 
-  if ((millis() - lastDebounceTime) > 50) {
+  if ((millis() - lastDebounceTime) > 50) {  // Debounce 50ms
     if (currentState != button_state) {
       button_state = currentState;
     }
@@ -376,6 +282,7 @@ void handleBuff(const String& command) {
 void handleDamage(int damage) {
   if (!robotAlive) return;
 
+  // Jika sedang blok dan energi masih tersedia, serangan diblok
   if (isBlocking && energy > 0) {
     Serial.println("Attack Blocked!");
     energy = max(energy - 5, 0);
@@ -397,78 +304,80 @@ void handleDamage(int damage) {
   }
 }
 
-void handleHitMotion() {
-  if(!isHitAnimating) return;
+  void handleHitMotion()
+  {
+    if(!isHitAnimating) return;
 
-  unsigned long currentTime = millis();
-  switch(hitAnimationIndex) {
-    case 0:
-    if(currentTime - hitAnimationStart > 200) {
-    setServoAngle(SERVO_PINGGANG, 80);
-    setServoAngle(SERVO_TANGANKIRI, 120);
-    Serial.println("Hit motion 1");
-    delay(50);
-    }
-    if(currentTime - hitAnimationStart > 300) {
-      setIdlePosition();
-      isHitAnimating = false;
-    }
-    break;
+    unsigned long currentTime = millis();
+    switch(hitAnimationIndex) {
+      case 0:
+      if(currentTime - hitAnimationStart > 200) {
+      setServoAngle(SERVO_PINGGANG, 80);
+      setServoAngle(SERVO_TANGANKIRI, 120);
+      Serial.println("Hit motion 1");
+      delay(50);
+      }
+      if(currentTime - hitAnimationStart > 300) {
+        setIdlePosition();
+        isHitAnimating = false;
+      }
+      break;
 
-    case 1:
-    if(currentTime - hitAnimationStart > 200) {
-    setServoAngle(SERVO_PINGGANG, 20);
-    setServoAngle(SERVO_TANGANKIRI, 120);
-    Serial.println("Hit motion 2");
-    delay(50);
-    }
-    if(currentTime - hitAnimationStart > 300) {
-      setIdlePosition();
-      isHitAnimating = false;
-    }
-    break;
+      case 1:
+      if(currentTime - hitAnimationStart > 200) {
+      setServoAngle(SERVO_PINGGANG, 20);
+      setServoAngle(SERVO_TANGANKIRI, 120);
+      Serial.println("Hit motion 2");
+      delay(50);
+      }
+      if(currentTime - hitAnimationStart > 300) {
+        setIdlePosition();
+        isHitAnimating = false;
+      }
+      break;
 
-    case 2:
-    if(currentTime - hitAnimationStart > 200) {
-    setServoAngle(SERVO_PINGGANG, 20);
-    setServoAngle(SERVO_KAKIKANAN, 180);
-    Serial.println("Hit motion 3");
-    delay(50);
+      case 2:
+      if(currentTime - hitAnimationStart > 200) {
+      setServoAngle(SERVO_PINGGANG, 20);
+      setServoAngle(SERVO_KAKIKANAN, 180);
+      Serial.println("Hit motion 3");
+      delay(50);
+      }
+      if(currentTime - hitAnimationStart > 300) {
+        setIdlePosition();
+        isHitAnimating = false;
+      }
+      break;
     }
-    if(currentTime - hitAnimationStart > 300) {
-      setIdlePosition();
-      isHitAnimating = false;
-    }
-    break;
   }
-}
 
 void handleBlockAtkmotion() {
-  if(!blockingAtkMotionActive) {
-    blockingAtkMotionActive = true;
-    blockingAtkMotionStart = millis();
+
+  if(!blockingAtkMotionActive){
+  blockingAtkMotionActive = true;
+  blockingAtkMotionStart = millis();
   }
   unsigned long currentTime = millis();
-  if (currentTime - blockingAtkMotionStart > 200) {
-    setServoAngle(SERVO_TANGANKIRI, 70); 
-    setServoAngle(SERVO_PINGGANG, 10);
-    Serial.println("BlockingAtkMotion");
-    delay(50);
-  } 
-  if (currentTime - blockingAtkMotionStart > 400) {
-    setIdlePosition();
-    blockingAtkMotionActive = false;
-  }
+    if (currentTime - blockingAtkMotionStart > 200){
+      setServoAngle(SERVO_TANGANKIRI, 70); 
+      setServoAngle(SERVO_PINGGANG, 10);
+      Serial.println("BlockingAtkMotion");
+      delay(50);
+    } 
+    if (currentTime - blockingAtkMotionStart > 400){
+      setIdlePosition();
+      blockingAtkMotionActive = false;
+    }
 }
 
-void handleDefeat() {
+  void handleDefeat() {
   robotAlive = false;
-  if (client.connected()) {
-    client.print(clientName + " defeated!\n");
-  }
+  client.print(clientName + " defeated!\n"); // kirim pesan ke server
   defeatAnimationStep = 0;
   defeatMotionStart = millis();
-  displayPrint("DEFEATED!\nHold reset");
+  displayPrint("DEFEATED! Hold reset");
+  displayPrint("5s to reboot");
+  //client.stop();
 }
 
 void handleDefeatMotion() {
@@ -485,14 +394,39 @@ void handleDefeatMotion() {
   }
 }
 
+// void checkReset() {
+//     if (!robotAlive) {
+//         static unsigned long resetStart = 0;
+//         if (digitalRead(resetPin) == LOW) {
+//             if (resetStart == 0) {
+//                 resetStart = millis();
+//                 displayPrint("Resetting...");
+//             } else if (millis() - resetStart > 5000) {
+//                 hp = hpstats;
+//                 energy = energyMax;
+//                 robotAlive = true;
+//                 defeatAnimationStep = 0;
+//                 //connectToServer();
+//                 setIdlePosition();
+//                 displayPrint("Reboot Complete!");
+//             }
+//         } else {
+//             resetStart = 0;
+//         }
+//     }
+// }
+
+
 void checkReset() {
   static unsigned long resetStart = 0;
 
+  // Jika tombol reset ditekan
   if (digitalRead(resetPin) == LOW) {
     if (resetStart == 0) {
       resetStart = millis();
     } 
     else if (millis() - resetStart > 5000) {
+      // Reset semua parameter
       hp = hpstats;
       energy = energyMax;
       robotAlive = true;
@@ -503,40 +437,39 @@ void checkReset() {
       blockingAtkMotionActive = false;
       setIdlePosition();
       
-      if (!client.connected() && serverFound) {
+      // Koneksi ulang ke server jika belum tersambung
+      if (!client.connected()) {
         connectToServer();
       }
 
       displayPrint("Reboot Complete!");
       Serial.println("System Reset!");
       delay(1500);
-      resetStart = 0;
+      resetStart = 0; // Reset timer
     }
   } 
   else {
-    resetStart = 0;
+    resetStart = 0; // Jika tombol dilepas sebelum 5 detik
   }
 }
 
+
 void sendAttack() {
-  if (!client.connected()) {
-    Serial.println("Not connected to server!");
-    return;
-  }
-  
+  // Tambahkan bonus damage berdasarkan strength
   int totalAtk = atk + (atk * strength / 100);
   String msg = "Atk " + String(totalAtk) + "\n";
   client.print(msg);
   Serial.println("Attack Sent: " + msg);
 }
 
-void BlockState() {
+void BlockState() //Blocking menggunakan millis
+{
   static unsigned long lastEnergyDrain = 0;
   block_state = digitalRead(blockPin);
   
   if (block_state ==  LOW && !isBlocking && energy > 0) {
     isBlocking = true;
-    energy = max(energy - 1, 0);
+    energy = max(energy - 1, 0); // Energi berkurang 1 saat block
     lastBlockTime = millis();
     Serial.println("Blocking...");
   }
@@ -550,8 +483,10 @@ void BlockState() {
     if (currentTime - lastBlockTime < 400) {
       setServoAngle(SERVO_TANGANKIRI,90);
       setServoAngle(SERVO_PINGGANG, 20);
-      setServoAngle(SERVO_BAHUKANAN, 150);
-      setServoAngle(SERVO_SIKUKANAN, 120);
+      setServoAngle(SERVO_BAHUKANAN, 150);//-kanan +kiri
+      setServoAngle(SERVO_SIKUKANAN, 120);//- semakin kecil semakin kebelakang
+      // setServoAngle(SERVO_BAHUKANAN, 100);//-kanan +kiri
+      // setServoAngle(SERVO_PUNGGUNG, 110);//+turun -naik
       delay(50);
     } else {
       isBlocking = false;
@@ -559,79 +494,92 @@ void BlockState() {
   }
 }
 
-void setIdleAnimation() {
+void setIdleAnimation() 
+{
+  // Static variable untuk mencatat waktu idle mulai
   static unsigned long idleStartTime = 0;
 
+  // Jika ada tombol yang ditekan atau motion lain aktif, reset timer dan keluar
   if (digitalRead(atkPin) == LOW || digitalRead(blockPin) == LOW 
       || isAttacking || isHitAnimating || blockingAtkMotionActive) {
-    idleStartTime = 0;
+    idleStartTime = 0;  // Reset waktu tunggu
     return;
   }
 
+  // Jika kedua tombol tidak ditekan dan tidak ada motion aktif,
+  // catat waktu mulai jika belum dicatat.
   if (idleStartTime == 0) {
     idleStartTime = millis();
   }
 
+  // Tunggu hingga 1 detik telah berlalu sejak tombol dilepas
   if (millis() - idleStartTime >= 2000) {
+    // Idle animation dijalankan
     static unsigned long lastUpdateTime = 0;
-    const unsigned long updateInterval = 5;
-    static int offset = 0;
-    static int step = 1;
+    const unsigned long updateInterval = 5; // Update setiap 5 ms
+    static int offset = 0;    // Offset derajat dari posisi dasar
+    static int step = 1;      // Langkah per update
 
     if (millis() - lastUpdateTime >= updateInterval) {
       lastUpdateTime = millis();
       offset += step;
+      // Balik arah jika offset mencapai batas ±5 derajat
       if (offset >= 5 || offset <= -5) {
         step = -step;
       }
-      setServoAngle(SERVO_BAHUKANAN, 80 + offset);
-      setServoAngle(SERVO_PUNGGUNG, 75 + offset);
-      setServoAngle(SERVO_SIKUKANAN, 60 + offset);
-      setServoAngle(SERVO_PINGGANG, 40 + offset);
-      setServoAngle(SERVO_TANGANKIRI, 110 + offset);
+      // Terapkan pergeseran offset ke beberapa servo
+       setServoAngle(SERVO_BAHUKANAN, 80 + offset);   // Contoh: Bahu kanan
+       setServoAngle(SERVO_PUNGGUNG, 75 + offset);      // Punggung
+       setServoAngle(SERVO_SIKUKANAN, 60 + offset);      // Siku kanan
+       setServoAngle(SERVO_PINGGANG, 40 + offset);       // Pinggang
+       setServoAngle(SERVO_TANGANKIRI, 110 + offset);// - semakin kecil semakin kedepan
+      // // setServoAngle(SERVO_KAKIKANAN, 70 + offset);      // Kaki kanan
+      // // setServoAngle(SERVO_KAKIKIRI, 30 + offset);       // Kaki kiri
     }
   }
 }
 
 void handleAtkState() {
+
   if (isBlocking) {
     Serial.println("Cannot attack while blocking.");
-    return;
+    return;  // Langsung keluar dari fungsi jika blocking aktif
   }
   
-  static int animationIndex = 0;
+  static int animationIndex = 0;  // Indeks untuk memilih animasi
   button_state = debounceButton(atkPin);
 
   if (button_state == LOW && !isAttacking) {
     if (!isBlocking && digitalRead(atkPin) == LOW && atkReleased) {
       isAttacking = true;
       if (millis() - lastAttack > 1000 && energy >= 10) {
-        sendAttack();
-        energy = max(energy - 5, 0);
-        lastAtkTime = millis();
-        Serial.println("Attack started.");
-        atkReleased = false;
+      sendAttack();
+      energy = max(energy - 5, 0);
+      lastAtkTime = millis();
+      Serial.println("Attack started.");
+      atkReleased = false;
       }
     }
   }
-  
   if (isAttacking) {
     unsigned long currentTime = millis();
     switch (animationIndex) {
-      case 0:
+      case 0:  // Animasi serangan 1
         if (currentTime - lastAtkTime < 200) {
           setServoAngle(SERVO_PINGGANG, 120);
           setServoAngle(SERVO_PUNGGUNG, 50);
           setServoAngle(SERVO_BAHUKANAN, 150);
-          setServoAngle(SERVO_SIKUKANAN, 80);
+          // setServoAngle(SERVO_LUTUTKIRI , 120);// -semakin besar semakin lurus
+          setServoAngle(SERVO_SIKUKANAN, 80);//- semakin kecil semakin kebelakang
+          // setServoAngle(SERVO_KAKIKIRI, 20);// -semakin kecil semakin kedepan
         } else if (currentTime - lastAtkTime < 500) {
           setServoAngle(SERVO_PINGGANG, 20);
           setServoAngle(SERVO_PUNGGUNG, 50);
           setServoAngle(SERVO_BAHUKANAN, 40);
-          setServoAngle(SERVO_SIKUKANAN, 90);
+          setServoAngle(SERVO_SIKUKANAN, 90);;//-kanan +kiri
         } else {
           isAttacking = false;
-          animationIndex = (animationIndex + 1) % 3;
+          animationIndex = (animationIndex + 1) % 3;  // Pindah ke animasi berikutnya
           setIdlePosition();
           Serial.println("Attack 1 ended.");
           delay(50);
@@ -639,21 +587,24 @@ void handleAtkState() {
         }
         break;
 
-      case 1:
+      case 1:  // Animasi serangan 2
         if (currentTime - lastAtkTime < 200) {
+          // setServoAngle(SERVO_BAHUKANAN, 180);
           setServoAngle(SERVO_PINGGANG, 20);
           setServoAngle(SERVO_PUNGGUNG, 50);
           setServoAngle(SERVO_BAHUKANAN, 90);
-          setServoAngle(SERVO_SIKUKANAN, 90);
+          setServoAngle(SERVO_SIKUKANAN, 90);//- semakin kecil semakin kebelakang
+          // setServoAngle(SERVO_KAKIKIRI, 20);// -semakin kecil semakin kedepan
         } else if (currentTime - lastAtkTime < 500) {
           setServoAngle(SERVO_PUNGGUNG, 50);
           setServoAngle(SERVO_PINGGANG, 120);
           setServoAngle(SERVO_BAHUKANAN, 140);
-          setServoAngle(SERVO_SIKUKANAN, 90);
+          // setServoAngle(SERVO_LUTUTKIRI , 120);// -semakin besar semakin lurus
+          setServoAngle(SERVO_SIKUKANAN, 90);;//-kanan +kiri
         }
-        else {
+         else {
           isAttacking = false;
-          animationIndex = (animationIndex + 1) % 3;
+          animationIndex = (animationIndex + 1) % 3;  // Pindah ke animasi berikutnya
           setIdlePosition();
           Serial.println("Attack 2 ended.");
           delay(50);
@@ -661,19 +612,22 @@ void handleAtkState() {
         }
         break;
 
-      case 2:
+      case 2:  // Animasi serangan 3 -+
         if (currentTime - lastAtkTime < 200) {
-          setServoAngle(SERVO_PINGGANG, 60);
-          setServoAngle(SERVO_SIKUKANAN, 90);
+         setServoAngle(SERVO_PINGGANG, 60);
+         setServoAngle(SERVO_SIKUKANAN, 90);;//-kanan +kiri
+
         } else if (currentTime - lastAtkTime < 400) {
           setServoAngle(SERVO_PINGGANG, 120);
           setServoAngle(SERVO_PUNGGUNG, 40);
           setServoAngle(SERVO_BAHUKANAN, 100);
-          setServoAngle(SERVO_SIKUKANAN, 90);
+          // setServoAngle(SERVO_LUTUTKIRI , 120);// -semakin besar semakin lurus
+          setServoAngle(SERVO_SIKUKANAN, 90);;//-kanan +kiri
+          // setServoAngle(SERVO_KAKIKIRI, 20);// -semakin kecil semakin kedepan
         }
-        else {
+          else {
           isAttacking = false;
-          animationIndex = (animationIndex + 1) % 3;
+          animationIndex = (animationIndex + 1) % 3;  // Pindah ke animasi berikutnya
           setIdlePosition();
           Serial.println("Attack 3 ended.");
           delay(50);
@@ -683,10 +637,12 @@ void handleAtkState() {
     }
   }
   else {
+    // Servo dalam posisi idle saat tidak menyerang
     setIdlePosition();
     setIdleAnimation();
   }
 }
+
 
 void loop() {
   checkReset();
@@ -696,9 +652,9 @@ void loop() {
     checkReset();
     handleServer();
     updateDisplay();
+    //checkReset();
     return;
   }
-  
   handleEnergy();
 
   if (isHitAnimating) {
