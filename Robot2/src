@@ -44,9 +44,8 @@ const char* ssid = "Alamak";
 const char* password = "ndaktaukoktanyasaya";
 
 // Konfigurasi Server
-const char* serverIP = "192.168.1.10";
+const char* serverIP = "192.168.123.8";
 const int serverPort = 50003;
-// 
 
 // Konfigurasi Klien
 const String clientName = "Esmocca"; // Ganti untuk client kedua
@@ -182,7 +181,6 @@ void connectToWiFi() {
   displayPrint("WiFi Connected!\nIP: " + WiFi.localIP().toString());
   delay(2000);
 }
-
 
 void connectToServer() {
   displayPrint("Connecting to server...");
