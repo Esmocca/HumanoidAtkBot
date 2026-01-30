@@ -1,4 +1,5 @@
 // Original Server code using DHCP
+// update with cards buff
 
 #include <WiFi.h>
 #include <Wire.h>
