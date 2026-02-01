@@ -20,7 +20,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 const char* ssid = "Alamak";
 const char* password = "ndaktaukoktanyasaya";
-int port = 50003;
+int port = 5****;
 
 
 WiFiServer server(port);
