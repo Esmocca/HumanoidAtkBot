@@ -46,7 +46,7 @@ const char* password = "ndaktaukoktanyasaya";
 
 // Konfigurasi Server
 const char* serverIP = "10.29.117.2";
-const int serverPort = 50003;
+const int serverPort = 50***;
 
 // Konfigurasi Klien
 const String clientName = "Stellar"; // Ganti untuk client kedua
