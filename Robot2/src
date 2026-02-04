@@ -45,7 +45,7 @@ const char* password = "ndaktaukoktanyasaya";
 
 // Konfigurasi Server
 const char* serverIP = "192.168.123.8";
-const int serverPort = 50***;
+const int serverPort = *****;
 
 // Konfigurasi Klien
 const String clientName = "Esmocca"; // Ganti untuk client kedua
