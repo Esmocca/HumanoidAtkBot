@@ -10,7 +10,8 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
 
 #define ScreenWidth 128
 #define ScreenHeight 64
-Adafruit_SSD1306 display(ScreenWidth, ScreenHeight, &Wire, -1);
+#define OledReset -1
+Adafruit_SSD1306 display(ScreenWidth, ScreenHeight, &Wire1, -1);
 
 #define SERVO_PUNGGUNG 0
 #define SERVO_BAHUKANAN 1
@@ -40,11 +41,11 @@ struct PlayerData {
     int atk = 30;
     int deff = 30;
     int strength = 10;
-    int energy = 60;
-    const int energyMax = 60;
-    const int energyRegen = 40;
+    int energy = 50;
+    const int energyMax = 50;
+    const int energyRegen = 10;
     unsigned long lastRegen = 0;
-    const unsigned long energyInterval = 10000;
+    const unsigned long energyInterval = 20000;
     bool robotAlive = true;
     int hpstats = hp;
 } player;
@@ -136,11 +137,11 @@ void UpdateDisplay(const PlayerData& player) {
     display.setTextSize(1);
     display.setCursor(10, 0);
     display.println(player.ClientName);
-    display.print("HP: " + String(player.hp));
-    display.print("ATK: " + String(player.atk));
-    display.print("DEF: " + String(player.deff) + "%");
-    display.print("STR: " + String(player.strength) + "%");
-    display.print("ENG: " + String(player.energy));
+    display.println("HP: " + String(player.hp));
+    display.println("ATK: " + String(player.atk));
+    display.println("DEF: " + String(player.deff) + "%");
+    display.println("STR: " + String(player.strength) + "%");
+    display.println("ENG: " + String(player.energy));
     display.display();
 }
 
@@ -234,44 +235,28 @@ void handleEnergy() {
 }
 
 void handleBuff(const String& command) {
-  int buffType = -1;
-  if (command.indexOf("HP") > 0) buffType = 0;
-  else if (command.indexOf("ATK") > 0) buffType = 1;
-  else if (command.indexOf("DEF") > 0) buffType = 2;
-  else if (command.indexOf("STR") > 0) buffType = 3;
-  else if (command.indexOf("ENGY") > 0) buffType = 4;
-
-  switch (buffType) {
-    case 0:
-      player.hp = player.hp + player.hp / 10;
-      player.hpstats = player.hp;
-      Serial.println("HP Buffed +10%");
-      displayprint("HP Buff +10%");
-      break;
-    case 1:
-      player.atk = player.atk + player.atk / 10;
-      Serial.println("ATK Buffed +10%");
-      displayprint("ATK Buff +10%");
-      break;
-    case 2:
-      player.deff = player.deff + player.deff / 10;
-      Serial.println("DEF Buffed +10%");
-      displayprint("DEF Buff +10%");
-      break;
-    case 3:
-      player.strength = player.strength + player.strength / 10;
-      Serial.println("STR Buffed +10%");
-      displayprint("STR Buff +10%");
-      break;
-    case 4:
-      player.energy = player.energy + player.energy / 10;
-      player.energy = min(player.energy, player.energyMax);
-      Serial.println("Energy Buffed +10%");
-      displayprint("ENGY Buff +10%");
-      break;
-    default:
-      Serial.println("Unknown buff command");
-      break;
+    if (command.indexOf("HP") > 0) {
+    player.hp = player.hp + player.hp / 10;
+    player.hpstats = player.hp;
+    Serial.println("HP Buffed +10%");
+    displayprint("HP Buff +10%");
+  } else if (command.indexOf("ATK") > 0) {
+    player.atk = player.atk + player.atk / 10;
+    Serial.println("ATK Buffed +10%");
+    displayprint("ATK Buff +10%");
+  } else if (command.indexOf("DEF") > 0) {
+    player.deff = player.deff + player.deff / 10;
+    Serial.println("DEF Buffed +10%");
+    displayprint("DEF Buff +10%");
+  } else if (command.indexOf("STR") > 0) {
+    player.strength = player.strength + player.strength / 10;
+    Serial.println("STR Buffed +10%");
+    displayprint("STR Buff +10%");
+  } else if (command.indexOf("ENGY") > 0) {
+    player.energy = player.energy + player.energy / 10;
+    player.energy = min(player.energy, player.energyMax);
+    Serial.println("Energy Buffed +10%");
+    displayprint("ENGY Buff +10%");
   }
 }
 
