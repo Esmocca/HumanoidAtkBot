@@ -44,7 +44,7 @@ struct PlayerData {
     const int energyMax = 60;
     const int energyRegen = 40;
     unsigned long lastRegen = 0;
-    const unsigned long energyInterval = 7000;
+    const unsigned long energyInterval = 10000;
     bool robotAlive = true;
     int hpstats = hp;
 } player;
