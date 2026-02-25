@@ -45,7 +45,7 @@ struct PlayerData {
     const int energyMax = 50;
     const int energyRegen = 10;
     unsigned long lastRegen = 0;
-    const unsigned long energyInterval = 20000;
+    const unsigned long energyInterval = 8000;
     bool robotAlive = true;
     int hpstats = hp;
 } player;
@@ -92,6 +92,24 @@ struct AnimationVariables {
     unsigned long blockingAtkMotionStart = 0;
 } animationVar;
 
+struct AiData {
+  bool active = false;
+  int resetPressCount = 0;
+  unsigned long lastResetPressTime = 0;
+  const unsigned long doublePressTime = 500;
+  bool lastResetState = HIGH;
+  unsigned long lastAiAction = 0;
+  unsigned long aiActionInterval = 800;
+  int aiAnimIndex = 0;
+
+  int comboCount = 0;
+  unsigned long lastComboTime = 0;
+  const unsigned long comboInterval = 2000;
+  bool justBlocked = false;
+  int damageReceived = 0;
+  unsigned long lastDamageTime = 0;
+} aiData;
+
 int buttonState = LOW;
 
 WiFiClient client;
@@ -136,7 +154,11 @@ void UpdateDisplay(const PlayerData& player) {
     display.setTextColor(WHITE);
     display.setTextSize(1);
     display.setCursor(10, 0);
+    if (aiData.active) {
+      display.println(String (player.ClientName) + " [AI]");
+    } else {
     display.println(player.ClientName);
+    }
     display.println("HP: " + String(player.hp));
     display.println("ATK: " + String(player.atk));
     display.println("DEF: " + String(player.deff) + "%");
@@ -235,28 +257,44 @@ void handleEnergy() {
 }
 
 void handleBuff(const String& command) {
-    if (command.indexOf("HP") > 0) {
-    player.hp = player.hp + player.hp / 10;
-    player.hpstats = player.hp;
-    Serial.println("HP Buffed +10%");
-    displayprint("HP Buff +10%");
-  } else if (command.indexOf("ATK") > 0) {
-    player.atk = player.atk + player.atk / 10;
-    Serial.println("ATK Buffed +10%");
-    displayprint("ATK Buff +10%");
-  } else if (command.indexOf("DEF") > 0) {
-    player.deff = player.deff + player.deff / 10;
-    Serial.println("DEF Buffed +10%");
-    displayprint("DEF Buff +10%");
-  } else if (command.indexOf("STR") > 0) {
-    player.strength = player.strength + player.strength / 10;
-    Serial.println("STR Buffed +10%");
-    displayprint("STR Buff +10%");
-  } else if (command.indexOf("ENGY") > 0) {
-    player.energy = player.energy + player.energy / 10;
-    player.energy = min(player.energy, player.energyMax);
-    Serial.println("Energy Buffed +10%");
-    displayprint("ENGY Buff +10%");
+  int buffType = -1;
+  if (command.indexOf("HP") > 0) buffType = 0;
+  else if (command.indexOf("ATK") > 0) buffType = 1;
+  else if (command.indexOf("DEF") > 0) buffType = 2;
+  else if (command.indexOf("STR") > 0) buffType = 3;
+  else if (command.indexOf("ENGY") > 0) buffType = 4;
+
+  switch (buffType) {
+    case 0:
+      player.hp = player.hp + player.hp / 10;
+      player.hpstats = player.hp;
+      Serial.println("HP Buffed +10%");
+      displayprint("HP Buff +10%");
+      break;
+    case 1:
+      player.atk = player.atk + player.atk / 10;
+      Serial.println("ATK Buffed +10%");
+      displayprint("ATK Buff +10%");
+      break;
+    case 2:
+      player.deff = player.deff + player.deff / 10;
+      Serial.println("DEF Buffed +10%");
+      displayprint("DEF Buff +10%");
+      break;
+    case 3:
+      player.strength = player.strength + player.strength / 10;
+      Serial.println("STR Buffed +10%");
+      displayprint("STR Buff +10%");
+      break;
+    case 4:
+      player.energy = player.energy + player.energy / 10;
+      player.energy = min(player.energy, player.energyMax);
+      Serial.println("Energy Buffed +10%");
+      displayprint("ENGY Buff +10%");
+      break;
+    default:
+      Serial.println("Unknown buff command");
+      break;
   }
 }
 
@@ -267,11 +305,17 @@ void handleDamage(int damage) {
         Serial.println("Attack Blocked!");
         player.energy = max(player.energy - 5,0);
         handleBlockAtkmotion();
+        if (aiData.active) {
+          aiData.justBlocked = true;
+        }
         return;
     } else {
         blockData.isBlocking = false;
     }
-
+    if (aiData.active) {
+        aiData.damageReceived += damage;
+        aiData.lastDamageTime = millis();
+    }
     int TotalDamage = damage - (damage * player.deff / 100);
 
     player.hp = max(player.hp - TotalDamage, 0);
@@ -375,6 +419,31 @@ void handleDefeatMotion() {
 
 void checkReset() {
   static unsigned long resetStart = 0;
+  bool currentResetState = digitalRead(buttonPins.ResetPin);
+
+  if (currentResetState == LOW && aiData.lastResetState == HIGH){
+    unsigned long now = millis();
+    if (now - aiData.lastResetPressTime <= aiData.doublePressTime) {
+      aiData.resetPressCount = 0;
+      aiData.active = !aiData.active;
+      if (aiData.active) {
+        Serial.println("AI Mode On");
+        attackData.isAttacking = false;
+        blockData.isBlocking = false;
+        setIdlePosition();
+      } else {
+        Serial.println("AI Mode Off");
+        setIdlePosition();
+      }
+      delay (500);
+      aiData.lastResetPressTime = 0;
+    } else {
+      aiData.resetPressCount = 1;
+      aiData.lastResetPressTime = now;
+    }
+  }
+  aiData.lastResetState = currentResetState;
+  if (aiData.active) return;
 
   if (digitalRead(buttonPins.ResetPin) == LOW) {
     if (resetStart == 0) {
@@ -589,6 +658,127 @@ void handleAtkState() {
   }
 }
 
+void aiTriggerAttack(const String& label) {
+  int totalDamage = player.atk + (player.atk * player.strength / 100);
+  sendAttack();
+  player.energy = max(player.energy - 5, 0);
+  attackData.isAttacking = true;
+  attackData.lastAtkTime = millis();
+  attackData.atkReleased = false;
+
+  aiData.comboCount++;
+  aiData.lastComboTime = millis();
+
+  Serial.println("[AI] " + label + " (Dmg:" + String(totalDamage) + " Combo:" + String(aiData.comboCount) + ")");
+}
+
+void aiTriggerBlock(const String& label) {
+  blockData.isBlocking = true;
+  blockData.lastBlockTime = millis();
+  player.energy = max(player.energy - 1, 0);
+  aiData.comboCount = 0;
+  Serial.println("[AI] " + label);
+}
+
+void aiMode() {
+  if (!player.robotAlive || !aiData.active) return;
+  if (attackData.isAttacking || blockData.isBlocking) return;
+
+  unsigned long now = millis();
+  if (now - aiData.lastComboTime > aiData.comboInterval) {
+    aiData.comboCount = 0;
+  }
+  float hpPercent = (float)player.hp / (float)player.hpstats * 100.0;
+  float energyPercent = (float)player.energy / (float)player.energyMax * 100.0;
+
+  if (hpPercent > 70.0) {
+    aiData.aiActionInterval = 700;
+  } else if (hpPercent > 40.0) {
+    aiData.aiActionInterval = 900;
+  } else {
+    aiData.aiActionInterval = 1300;
+  }
+
+  int comboBonus = aiData.comboCount * 80;
+  aiData.aiActionInterval = max((int)aiData.aiActionInterval - comboBonus, 300);
+  if (now - aiData.lastAiAction < aiData.aiActionInterval) return;
+
+  int totalDamage = player.atk + (player.atk * player.strength / 100);
+  int energyReserve = 5;
+  int usableEnergy = player.energy - energyReserve;
+  if (hpPercent < 20.0) usableEnergy = player.energy;
+
+  if (now - aiData.lastDamageTime > 5000) {
+    aiData.damageReceived = 0;
+    int decision = random(1, 5); // Generates 1, 2, 3 (block) or 4 (attack)
+    if (decision <= 3 && energyPercent >= 30.0) {
+      aiTriggerBlock("Strategic Block");
+    } else if (usableEnergy >= 10) {
+      aiTriggerAttack("Calculated Attack");
+    }
+    aiData.lastAiAction = now;
+    return;
+  }
+
+  if (aiData.justBlocked && player.energy >= 10) {
+    aiData.justBlocked = false;
+    aiTriggerAttack("COUNTER-ATTACK!");
+    aiData.lastAiAction = now;
+    return;
+  }
+  aiData.justBlocked = false;
+
+  if (hpPercent < 10.0 && player.energy >= 10) {
+    aiTriggerAttack("DESPERATION!");
+    aiData.lastAiAction = now;
+    return;
+  }
+
+  if (hpPercent < 20.0 && player.energy >= 5) {
+    aiTriggerBlock("Defensive Block (HP Critical)");
+    aiData.lastAiAction = now;
+    return;
+  }
+
+  if (aiData.damageReceived > 30 && player.energy >= 5) {
+    aiData.damageReceived = 0;
+    aiTriggerBlock("Reflex Block (Heavy Damage)");
+    aiData.lastAiAction = now;
+    return;
+  }
+
+  if (hpPercent > 70.0 && usableEnergy >= 10) {
+    aiTriggerAttack("Aggressive");
+    aiData.lastAiAction = now;
+    return;
+  }
+
+  if (hpPercent >= 20.0 && hpPercent <= 70.0) {
+    int blockChance = map((int)hpPercent, 20, 70, 60, 20);
+    int roll = (now / 100) % 100;
+
+    if (roll < blockChance && player.energy >= 5) {
+      aiTriggerBlock("Tactical Block");
+    } else if (usableEnergy >= 10) {
+      aiTriggerAttack("Tactical");
+    } else if (player.energy >= 5) {
+      aiTriggerBlock("Block & Regen");
+    }
+    aiData.lastAiAction = now;
+    return;
+  }
+
+  if (player.energy < 10 && player.energy >= 1) {
+    aiTriggerBlock("Block & Regen (No Energy)");
+    aiData.lastAiAction = now;
+    return;
+  }
+
+  Serial.println("[AI] Idle - Regen");
+  aiData.lastAiAction = now;
+}
+
+
 void loop() {
   checkReset();
 
@@ -597,16 +787,18 @@ void loop() {
     checkReset();
     handleServer();
     UpdateDisplay(player);
-    //checkReset();
     return;
   }
   handleEnergy();
+  handleServer();
 
   if (animationVar.isHitAnimating) {
     handleHitMotion();
   }
 
-  handleServer();
+  if (aiData.active) {
+    aiMode();
+  }
   UpdateDisplay(player);
   handleAtkState();
   BlockState();
