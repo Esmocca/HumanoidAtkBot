@@ -26,12 +26,12 @@ Adafruit_SSD1306 display(ScreenWidth, ScreenHeight, &Wire1, -1);
 #define SERVO_TELAPAKKIRI 10
 
 struct WiFiData {
-    const char* ssid = "Alamak";
-    const char* password = "ndaktaukoktanyasaya";
+    const char* ssid = "esmooca";
+    const char* password = "jangantanya";
 } wifiData;
 
 struct ServerData {
-    const char* serverIP = "10.211.198.96";
+    const char* serverIP = "10.166.206.96";
     const int serverPort = 50003;
 } serverData;
 
@@ -219,12 +219,12 @@ void handleServer(){
 void setIdlePosition() {
   ServoAngle(SERVO_BAHUKANAN, 80);//-kanan +kiri
   ServoAngle(SERVO_SIKUKANAN, 60);//- semakin kecil semakin kebelakang
-  ServoAngle(SERVO_TANGANKIRI, 110);// - semakin kecil semakin kedepan
+  ServoAngle(SERVO_TANGANKIRI, 120);// - semakin kecil semakin kedepan
   ServoAngle(SERVO_PUNGGUNG, 75);//-semakin kecil semakin naik
   ServoAngle(SERVO_PINGGANG, 40);//-semakin besar semakin ke kiri
   
   ServoAngle(SERVO_KAKIKANAN, 80);// -semakin besar semakin kedepan
-  ServoAngle(SERVO_KAKIKIRI, 15);// -semakin kecil semakin kedepan
+  ServoAngle(SERVO_KAKIKIRI, 25);// -semakin kecil semakin kedepan
   ServoAngle(SERVO_LUTUTKANAN , 10);// -semakin kecil semakin lurus
   ServoAngle(SERVO_LUTUTKIRI , 130);// -semakin besar semakin lurus
   ServoAngle(SERVO_TELAPAKKANAN , 65);// -semakin besar semakin maju
@@ -530,27 +530,35 @@ void setIdleAnimation()
     idleStartTime = millis();
   }
 
-  if (millis() - idleStartTime >= 2000) {
-    static unsigned long lastUpdateTime = 0;
-    const unsigned long updateInterval = 5; 
-    static int offsetDegree = 0;
-    static int step = 1;
+  if (millis() - idleStartTime >= 500) {
 
-    if (millis() - lastUpdateTime >= updateInterval) {
-      lastUpdateTime = millis();
-      offsetDegree += step;
-      if (offsetDegree >= 5 || offsetDegree <= -5) {
-        step = -step;
-      }
+    float t = millis() / 1000.0;
+
+    float amplitude = 5.0;
+    float speed = 1.5;
+
+    float offset = amplitude * sin(speed * t);
+    // static unsigned long lastUpdateTime = 0;
+    // const unsigned long updateInterval = 5; 
+    // static int offsetDegree = 0;
+    // static int step = 1;
+
+    // if (millis() - lastUpdateTime >= updateInterval) {
+    //   lastUpdateTime = millis();
+    //   offsetDegree += step;
+    //   if (offsetDegree >= 5 || offsetDegree <= -5) {
+    //     step = -step;
+    //   }
       // Terapkan pergeseran offset ke beberapa servo
-       ServoAngle(SERVO_BAHUKANAN, 80 + offsetDegree);   // Contoh: Bahu kanan
-       ServoAngle(SERVO_PUNGGUNG, 75 + offsetDegree);      // Punggung
-       ServoAngle(SERVO_SIKUKANAN, 60 + offsetDegree);      // Siku kanan
-       ServoAngle(SERVO_PINGGANG, 40 + offsetDegree);       // Pinggang
-       ServoAngle(SERVO_TANGANKIRI, 110 + offsetDegree);// - semakin kecil semakin kedepan
+       ServoAngle(SERVO_BAHUKANAN, 80 + offset);   // Contoh: Bahu kanan
+       ServoAngle(SERVO_PUNGGUNG, 75  + amplitude * sin(speed * t + 0.5));      // Punggung
+       ServoAngle(SERVO_SIKUKANAN, 60 + amplitude * sin(speed * t + 0.5));      // Siku kanan
+       ServoAngle(SERVO_PINGGANG, 40  + amplitude * sin(speed * t + 0.5));       // Pinggang
+       ServoAngle(SERVO_TANGANKIRI, 120  + amplitude * sin(speed * t + 0.5));// - semakin kecil semakin kedepan
+       ServoAngle(SERVO_KAKIKANAN, 80  + amplitude * sin(speed * t + 0.5));// -semakin besar semakin kedepan
+       ServoAngle(SERVO_KAKIKIRI, 25  + amplitude * sin(speed * t + 0.5));// -semakin kecil semakin kedepan
       // // setServoAngle(SERVO_KAKIKANAN, 70 + offsetDegree);      // Kaki kanan
       // // setServoAngle(SERVO_KAKIKIRI, 30 + offsetDegree);       // Kaki kiri
-    }
   }
 }
 
