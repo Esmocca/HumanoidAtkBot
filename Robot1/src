@@ -26,17 +26,17 @@ Adafruit_SSD1306 display(ScreenWidth, ScreenHeight, &Wire1, -1);
 #define SERVO_TELAPAKKIRI 10
 
 struct WiFiData {
-    const char* ssid = "Alamak";
-    const char* password = "ndaktaukoktanyasaya";
+    const char* ssid = "esmooca";
+    const char* password = "jangantanya";
 } wifiData;
 
 struct ServerData {
-    const char* serverIP = "10.211.198.96";
+    const char* serverIP = "10.166.206.96";
     const int serverPort = 50003;
 } serverData;
 
 struct PlayerData {
-    const char* ClientName = "Stelle";
+    const char* ClientName = "Stellar";
     int hp = 200;
     int atk = 30;
     int deff = 30;
@@ -45,7 +45,7 @@ struct PlayerData {
     const int energyMax = 50;
     const int energyRegen = 10;
     unsigned long lastRegen = 0;
-    const unsigned long energyInterval = 20000;
+    const unsigned long energyInterval = 8000;
     bool robotAlive = true;
     int hpstats = hp;
 } player;
@@ -197,7 +197,7 @@ void handleServer(){
 void setIdlePosition() {
   ServoAngle(SERVO_BAHUKANAN, 50);//-kanan +kiri
   ServoAngle(SERVO_TANGANKIRI, 15);// - semakin kecil semakin kedepan
-  ServoAngle(SERVO_PUNGGUNG, 130);//-semakin kecil semakin naik
+  ServoAngle(SERVO_PUNGGUNG, 140);//-semakin kecil semakin naik
   ServoAngle(SERVO_SIKUKANAN, 60);//- semakin kecil semakin kebelakang
   ServoAngle(SERVO_PINGGANG, 20);//-semakin besar semakin ke kiri
 
@@ -477,26 +477,20 @@ void setIdleAnimation()
     idleStartTime = millis();
   }
 
-  if (millis() - idleStartTime >= 2000) {
-    static unsigned long lastUpdateTime = 0;
-    const unsigned long updateInterval = 5; 
-    static int offsetDegree = 0;
-    static int step = 1;
+  if (millis() - idleStartTime >= 500) {
+    float t = millis() / 1000.0;
 
-    if (millis() - lastUpdateTime >= updateInterval) {
-      lastUpdateTime = millis();
-      offsetDegree += step;
-      if (offsetDegree >= 5 || offsetDegree <= -5) {
-        step = -step;
-      }
+    float amplitude = 5.0;
+    float speed = 1.5;
+
+    float offset = amplitude * sin(speed * t);
       // Terapkan pergeseran offset ke beberapa servo
-       ServoAngle(SERVO_BAHUKANAN, 50 + offsetDegree);   // Contoh: Bahu kanan
-       ServoAngle(SERVO_PUNGGUNG, 130 + offsetDegree);      // Punggung
-       ServoAngle(SERVO_SIKUKANAN, 60 + offsetDegree);      // Siku kanan
-       ServoAngle(SERVO_PINGGANG, 20 + offsetDegree);       // Pinggang
-      // // setServoAngle(SERVO_KAKIKANAN, 70 + offsetDegree);      // Kaki kanan
-      // // setServoAngle(SERVO_KAKIKIRI, 30 + offsetDegree);       // Kaki kiri
-    }
+       ServoAngle(SERVO_BAHUKANAN, 50 + offset);   // Contoh: Bahu kanan
+       ServoAngle(SERVO_PUNGGUNG, 140 + amplitude * sin(speed * t + 0.5));      // Punggung
+       ServoAngle(SERVO_SIKUKANAN, 60 + amplitude * sin(speed * t + 0.5));      // Siku kanan
+       ServoAngle(SERVO_PINGGANG, 20 + amplitude * sin(speed * t + 0.5));       // Pinggang
+       ServoAngle(SERVO_KAKIKANAN, 30 + amplitude * sin(speed * t + 0.5));// -semakin besar semakin kebelakang (kaki kiri)
+       ServoAngle(SERVO_KAKIKIRI, 80 +amplitude * sin(speed * t + 0.5));
   }
 }
 
