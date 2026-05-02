@@ -4,6 +4,20 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+#define NUMCD4021CHIPS 2
+byte myButtons[NUMCD4021CHIPS];
+
+int latchPin = 2;   // GP8  -> PL
+int clockPin = 3;   // GP7  -> CLOCK
+int dataPin = 4; // GP4 // Q8
+
+unsigned long controllerMillis = 0;
+unsigned long delayMillis = 0;
+const unsigned long delayTimer = 20;
+
+bool btnAttack = false;
+bool btnBlock  = false;
+
 #define ServoMaxDegree 600
 #define ServoMinDegree 150
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
@@ -31,7 +45,7 @@ struct WiFiData {
 } wifiData;
 
 struct ServerData {
-    const char* serverIP = "10.166.206.96";
+    const char* serverIP = "10.196.13.96";
     const int serverPort = 50003;
 } serverData;
 
@@ -121,6 +135,12 @@ void setup() {
     pinMode(buttonPins.ResetPin, INPUT_PULLUP);
     pinMode(buttonPins.SkillPin, INPUT_PULLUP);
 
+    pinMode(latchPin, OUTPUT);
+    pinMode(clockPin, OUTPUT);
+    pinMode(dataPin, INPUT_PULLDOWN);
+
+    digitalWrite(clockPin, HIGH);
+
     setIdlePosition();
     connectToWiFi();
     connectToServer();
@@ -194,6 +214,125 @@ void handleServer(){
     }
 }
 
+int readButton(int pin) {
+
+  // tombol asli
+  int realState = digitalRead(pin);
+
+  // mapping dari shift register
+  if (pin == buttonPins.AtkPin && btnAttack) {
+    return LOW;   // dianggap ditekan
+  }
+
+  if (pin == buttonPins.BlockPin && btnBlock) {
+    return LOW;
+  }
+
+  return realState;
+}
+
+void controller() {
+  btnAttack = false;
+  btnBlock  = false;
+   unsigned long currentMillis = millis();
+
+  if (currentMillis - delayMillis >= delayTimer) {
+    delayMillis = currentMillis;
+
+    // ===== LATCH DATA =====
+    static unsigned long latchMillis = 0;
+    static bool latchState = false;
+
+    if (!latchState) {
+      digitalWrite(latchPin, HIGH);
+      latchMillis = millis();
+      latchState = true;
+    }
+
+    if (millis() - latchMillis >= 1) {
+      digitalWrite(latchPin, LOW);
+      latchState = false;
+    }
+
+    // ===== BACA SEMUA IC =====
+    
+    for (int q = 0; q < NUMCD4021CHIPS; q++) {
+      byte registerContent = 0;
+
+      for (int idx = 0; idx < 8; idx++) {
+        int bitContent = digitalRead(dataPin);
+        bitWrite(registerContent, idx, bitContent);
+
+        digitalWrite(clockPin, LOW);
+
+        unsigned long pulseStart = millis();
+        while (millis() - pulseStart < 1) {
+          // short pulse
+        }
+
+        digitalWrite(clockPin, HIGH);
+      }
+
+      myButtons[q] = registerContent;
+    }
+    // ===== DETEKSI tombol dari shift register =====
+    for (int chip = 0; chip < NUMCD4021CHIPS; chip++) {
+
+  int pressedCount = 0;
+  int lastButton = -1;
+
+  for (int b = 0; b < 8; b++) {
+    if (bitRead(myButtons[chip], b) == 1) {
+      pressedCount++;
+      lastButton = b;
+    }
+  }
+
+  // hanya jika 1 tombol ditekan
+  if (pressedCount == 1) {
+
+    int globalButton = chip * 8 + lastButton;
+
+    if (globalButton == 1) {
+      btnAttack = true;
+    }
+    else if (globalButton == 2) {
+      btnBlock = true;
+    }
+  }
+}
+
+    // ===== PROCESS + PRINT =====
+    for (int w = 0; w < NUMCD4021CHIPS; w++) {
+
+      Serial.print("myButtons[");
+      Serial.print(w);
+      Serial.print("] = ");
+      Serial.println(myButtons[w], BIN);
+
+      int pressedCount = 0;
+      int lastButton = -1;
+
+      for (int q = 0; q < 8; q++) {
+        if (bitRead(myButtons[w], q) == 1) {
+          pressedCount++;
+          lastButton = q;
+        }
+      }
+
+      if (myButtons[w] == 0xFF) {
+        Serial.println("multiple input overload");
+      }
+      else if (pressedCount == 1) {
+        Serial.print("Button Pressed : ");
+        Serial.println(lastButton);
+      }
+
+      Serial.println(" ");
+    }
+  }
+}
+
 void setIdlePosition() {
   ServoAngle(SERVO_BAHUKANAN, 50);//-kanan +kiri
   ServoAngle(SERVO_TANGANKIRI, 15);// - semakin kecil semakin kedepan
@@ -212,7 +351,7 @@ void setIdlePosition() {
 bool debounceButton(int pin) {
     static unsigned long lastPressTime = 0;
     static int lastButtonState = LOW;
-    int currentState = digitalRead(pin);
+    int currentState = readButton(pin);
 
     if (currentState != lastButtonState) {
         lastPressTime = millis();
@@ -436,7 +575,7 @@ void sendAttack() {
 void BlockState()
 {
   static unsigned long lastEnergyDrain = 0;
-  blockData.block_state = digitalRead(buttonPins.BlockPin);
+  blockData.block_state = readButton(buttonPins.BlockPin);
   
   if (blockData.block_state ==  LOW && !blockData.isBlocking && player.energy > 0) {
     blockData.isBlocking = true;
@@ -467,7 +606,7 @@ void setIdleAnimation()
 {
   static unsigned long idleStartTime = 0;
 
-  if (digitalRead(buttonPins.AtkPin) == LOW || digitalRead(buttonPins.BlockPin) == LOW 
+  if (readButton(buttonPins.AtkPin) == LOW || readButton(buttonPins.BlockPin) == LOW 
       || attackData.isAttacking || animationVar.isHitAnimating || animationVar.blockingAtkMotionActive) {
     idleStartTime = 0;
     return;
@@ -502,10 +641,10 @@ void handleAtkState() {
   }
   
   static int animationIndex = 0;
-  attackData.attack_state = debounceButton(buttonPins.AtkPin);
+  attackData.attack_state = readButton(buttonPins.AtkPin);
 
   if (attackData.attack_state == LOW && !attackData.isAttacking) {
-    if (!blockData.isBlocking && digitalRead(buttonPins.AtkPin) == LOW && attackData.atkReleased) {
+    if (!blockData.isBlocking && readButton(buttonPins.AtkPin) == LOW && attackData.atkReleased) {
       attackData.isAttacking = true;
       if (millis() - attackData.lastAttack > 1000 && player.energy >= 10) {
       sendAttack();
@@ -601,7 +740,7 @@ void loop() {
   if (animationVar.isHitAnimating) {
     handleHitMotion();
   }
-
+  controller();
   handleServer();
   UpdateDisplay(player);
   handleAtkState();
