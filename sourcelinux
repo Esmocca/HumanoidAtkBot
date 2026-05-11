@@ -1,0 +1,196 @@
+#include <iostream>
+#include <string>
+#include <thread>
+#include <mutex>
+#include <algorithm>
+#include <cstring>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <ifaddrs.h>
+#include <arpa/inet.h>
+#include <cstdlib>
+#include <ctime>
+
+// ===== Struct dan Doubly Linked List =====
+struct ClientData {
+    int socket;
+    std::string name;
+};
+
+template <class T>
+class DNode {
+public:
+    T data;
+    DNode<T>* next;
+    DNode<T>* prev;
+    DNode(const T& d, DNode<T>* p = nullptr, DNode<T>* n = nullptr)
+        : data(d), prev(p), next(n) {}
+};
+
+template <class T>
+class DoublyLinkedList {
+private:
+    DNode<T>* head;
+    DNode<T>* tail;
+public:
+    DoublyLinkedList() : head(nullptr), tail(nullptr) {}
+    ~DoublyLinkedList() {
+        while (head) {
+            DNode<T>* tmp = head;
+            head = head->next;
+            delete tmp;
+        }
+    }
+
+    void insertBack(const T& data) {
+        DNode<T>* newNode = new DNode<T>(data, tail, nullptr);
+        if (tail) tail->next = newNode;
+        else head = newNode;
+        tail = newNode;
+    }
+
+    void removeNode(DNode<T>* node) {
+        if (!node) return;
+        if (node->prev) node->prev->next = node->next;
+        else head = node->next;
+        if (node->next) node->next->prev = node->prev;
+        else tail = node->prev;
+        delete node;
+    }
+
+    DNode<T>* getHead() { return head; }
+    int count() {
+        int c = 0;
+        DNode<T>* temp = head;
+        while (temp) {
+            c++;
+            temp = temp->next;
+        }
+        return c;
+    }
+};
+
+// ===== Global =====
+DoublyLinkedList<ClientData> clientList;
+std::mutex clients_mutex;
+bool gameStarted = false;
+int PORT = 5000;
+
+// ===== Fungsi untuk menampilkan IP lokal =====
+void printLocalIPs() {
+    struct ifaddrs *ifaddr, *ifa;
+    char addr[INET_ADDRSTRLEN];
+
+    if (getifaddrs(&ifaddr) == -1) {
+        perror("getifaddrs");
+        return;
+    }
+
+    std::cout << "Server available on the following IPs:\n";
+    for (ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == nullptr) continue;
+        if (ifa->ifa_addr->sa_family == AF_INET) {
+            struct sockaddr_in *sa = (struct sockaddr_in *)ifa->ifa_addr;
+            inet_ntop(AF_INET, &(sa->sin_addr), addr, INET_ADDRSTRLEN);
+            std::cout << " - " << ifa->ifa_name << ": " << addr << std::endl;
+        }
+    }
+    freeifaddrs(ifaddr);
+}
+
+// ===== Fungsi broadcast pesan =====
+void broadcast(const std::string& message, DNode<ClientData>* senderNode) {
+    std::lock_guard<std::mutex> lock(clients_mutex);
+    DNode<ClientData>* current = clientList.getHead();
+    while (current) {
+        if (current != senderNode) {
+            send(current->data.socket, message.c_str(), message.size(), 0);
+        }
+        current = current->next;
+    }
+}
+
+// ===== Handle komunikasi client =====
+void handleClient(DNode<ClientData>* node) {
+    char buffer[1024];
+    ClientData& client = node->data;
+
+    while (true) {
+        memset(buffer, 0, sizeof(buffer));
+        int bytes = recv(client.socket, buffer, sizeof(buffer) - 1, 0);
+        if (bytes <= 0) {
+            std::cout << client.name << " disconnected." << std::endl;
+            close(client.socket);
+
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            clientList.removeNode(node);
+            break;
+        }
+
+        std::string msg(buffer);
+        msg.erase(std::remove(msg.begin(), msg.end(), '\n'), msg.end());
+        std::cout << client.name << ": " << msg << std::endl;
+
+        broadcast(client.name + ": " + msg + "\n", node);
+    }
+}
+
+// ===== Main server =====
+int main() {
+    srand(time(nullptr));
+
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd == 0) { perror("Socket failed"); exit(EXIT_FAILURE); }
+
+    int opt = 1;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
+        perror("setsockopt"); exit(EXIT_FAILURE);
+    }
+
+    sockaddr_in address;
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+
+    if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
+        perror("bind failed"); exit(EXIT_FAILURE);
+    }
+
+    if (listen(server_fd, 3) < 0) { perror("listen"); exit(EXIT_FAILURE); }
+
+    printLocalIPs();
+    std::cout << "Server ready on port " << PORT << std::endl;
+
+    while (true) {
+        sockaddr_in client_addr;
+        socklen_t addrlen = sizeof(client_addr);
+        int new_socket = accept(server_fd, (struct sockaddr*)&client_addr, &addrlen);
+        if (new_socket < 0) { perror("accept"); continue; }
+
+        ClientData cd;
+        cd.socket = new_socket;
+        cd.name = "Player_" + std::to_string(rand() % 100);
+
+        DNode<ClientData>* node = new DNode<ClientData>(cd);
+
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            clientList.insertBack(cd);
+            node = clientList.getHead();
+            while (node->next) node = node->next; // ambil node terakhir yang baru masuk
+        }
+
+        std::cout << cd.name << " connected." << std::endl;
+
+        if (clientList.count() == 2 && !gameStarted) {
+            std::cout << "Game Start!" << std::endl;
+            gameStarted = true;
+        }
+
+        std::thread t(handleClient, node);
+        t.detach();
+    }
+
+    close(server_fd);
+    return 0;
+}
