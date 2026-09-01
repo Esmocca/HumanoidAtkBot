@@ -1,4 +1,6 @@
 // Server code (ported from Arduino/Pico W to Linux socket server)
+// Logika komunikasi antar client (mainServer) TIDAK diubah,
+// hanya bagian koneksi (WiFi -> TCP socket) dan tampilan (LCD -> stdout) yang disesuaikan.
 
 #include <iostream>
 #include <string>
@@ -11,8 +13,10 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 
-int port = 5000;
+int port = 5000; // ganti sesuai kebutuhan (5**** aslinya)
 
 int server_fd = -1;
 
@@ -94,6 +98,37 @@ void setNonBlocking(int fd) {
   fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
+// Pengganti WiFi.localIP() -- cari IPv4 non-loopback pertama
+// (mengabaikan "lo" dan interface virtual docker seperti "docker0"/"br-")
+std::string getLocalIP() {
+  struct ifaddrs* ifaddr;
+  std::string result = "unknown";
+
+  if (getifaddrs(&ifaddr) == -1) {
+    return result;
+  }
+
+  for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+    if (ifa->ifa_addr == nullptr) continue;
+    if (ifa->ifa_addr->sa_family != AF_INET) continue;
+    if (ifa->ifa_flags & IFF_LOOPBACK) continue;
+
+    std::string name(ifa->ifa_name);
+    if (name.rfind("docker", 0) == 0 || name.rfind("br-", 0) == 0 || name.rfind("veth", 0) == 0) {
+      continue;
+    }
+
+    char buf[INET_ADDRSTRLEN];
+    void* addr = &((struct sockaddr_in*)ifa->ifa_addr)->sin_addr;
+    inet_ntop(AF_INET, addr, buf, sizeof(buf));
+    result = buf;
+    break;
+  }
+
+  freeifaddrs(ifaddr);
+  return result;
+}
+
 void setupServer() {
   server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd < 0) {
@@ -121,7 +156,8 @@ void setupServer() {
 
   setNonBlocking(server_fd);
 
-  std::cout << "Server berjalan di port " << port << std::endl;
+  std::string ip = getLocalIP();
+  std::cout << "Server berjalan di IP: " << ip << " Port: " << port << std::endl;
 }
 
 // ================== displayServerReady (pengganti tampilan LCD) ==================
