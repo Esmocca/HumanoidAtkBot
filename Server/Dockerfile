@@ -7,6 +7,4 @@ COPY Server.cpp .
 
 RUN g++ Server.cpp -o server
 
-# Proses utama container -- otomatis jalan tiap kali container start,
-# tidak perlu docker exec manual lagi
 CMD ["./server"]
