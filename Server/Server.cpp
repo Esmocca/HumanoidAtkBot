@@ -16,19 +16,18 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 
-int port = 5000; // ganti sesuai kebutuhan (5**** aslinya)
+int port = 5000; //socket listening in port
 
 int server_fd = -1;
 
-// ================== ClientData ==================
-// WiFiClient (Arduino) diganti dengan file descriptor socket (int)
+// ClientData
 struct ClientData {
   int sock;
   std::string name;
   // int lifePoints = 3;
 };
 
-// ================== DoublyLinkedList (TIDAK DIUBAH) ==================
+// DoublyLinkedList for storing a list of clients
 template <class T>
 class DNode {
 public:
@@ -92,14 +91,13 @@ DoublyLinkedList<ClientData> clientList;
 bool gameStarted = false;
 bool serverReady = false;
 
-// ================== Setup socket (pengganti connectToWiFi + server.begin) ==================
+//  Setup socket
 void setNonBlocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
   fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-// Pengganti WiFi.localIP() -- cari IPv4 non-loopback pertama
-// (mengabaikan "lo" dan interface virtual docker seperti "docker0"/"br-")
+// cari IPv4 non-loopback pertama
 std::string getLocalIP() {
   struct ifaddrs* ifaddr;
   std::string result = "unknown";
@@ -160,15 +158,15 @@ void setupServer() {
   std::cout << "Server berjalan di IP: " << ip << " Port: " << port << std::endl;
 }
 
-// ================== displayServerReady (pengganti tampilan LCD) ==================
+// displayServerReady
 void displayServerReady() {
   std::cout << "Server Ready!" << std::endl;
   serverReady = true;
 }
 
-// ================== mainServer (LOGIKA TIDAK DIUBAH) ==================
+// mainServer for handling robot communication
 void mainServer() {
-  // --- terima client baru (pengganti server.accept()) ---
+  // Get new client
   sockaddr_in client_addr{};
   socklen_t addrlen = sizeof(client_addr);
   int newSock = accept(server_fd, (sockaddr*)&client_addr, &addrlen);
@@ -198,7 +196,7 @@ void mainServer() {
     if (n > 0) {
       buffer[n] = '\0';
       std::string data(buffer);
-      // trim seperti data.trim() di Arduino
+      // data.trim()
       while (!data.empty() && (data.back() == '\n' || data.back() == '\r')) {
         data.pop_back();
       }
@@ -213,7 +211,7 @@ void mainServer() {
         receiver = receiver->next;
       }
     } else if (n == 0) {
-      // client menutup koneksi (setara !client.connected())
+      // client menutup koneksi
       disconnected = true;
     } else {
       // n < 0
@@ -233,14 +231,14 @@ void mainServer() {
   }
 }
 
-// ================== main (pengganti setup() + loop()) ==================
+
 int main() {
   srand(static_cast<unsigned int>(time(nullptr)));
 
-  setupServer(); // sekali saja, pengganti setup() + connectToWiFi()
+  setupServer();
 
   while (true) {
-    mainServer(); // pengganti loop() -> hanya panggil mainServer()
+    mainServer();
   }
 
   return 0;
