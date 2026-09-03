@@ -1,6 +1,5 @@
 // Server code (ported from Arduino/Pico W to Linux socket server)
-// Logika komunikasi antar client (mainServer) TIDAK diubah,
-// hanya bagian koneksi (WiFi -> TCP socket) dan tampilan (LCD -> stdout) yang disesuaikan.
+// Logika komunikasi antar client (mainServer)
 
 #include <iostream>
 #include <string>
