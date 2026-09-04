@@ -253,8 +253,6 @@ void controller() {
       digitalWrite(latchPin, LOW);
       latchState = false;
     }
-
-    // ===== BACA SEMUA IC =====
     
     for (int q = 0; q < NUMCD4021CHIPS; q++) {
       byte registerContent = 0;
@@ -275,7 +273,6 @@ void controller() {
 
       myButtons[q] = registerContent;
     }
-    // ===== DETEKSI tombol dari shift register =====
     for (int chip = 0; chip < NUMCD4021CHIPS; chip++) {
 
   int pressedCount = 0;
